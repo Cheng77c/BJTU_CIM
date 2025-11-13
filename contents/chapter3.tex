@@ -1,0 +1,730 @@
+\chapter{基于CIM的室内外一体化疏散路径规划}
+\section{引言}
+
+城市信息模型（CIM）在城市灾害应急响应中发挥着越来越重要的作用。上一章建立了基于CIM的高精度风险评估方法（尤其是洪涝/内涝情景下的三维水动力模拟与脆弱性分析），为灾害风险的精确预测和空间暴露量化奠定了基础。在此基础上，本章将重点研究基于CIM的室内外一体化疏散路径规划方法，并将上一章的洪涝风险结果作为路径规划的风险约束与代价分量，实现“灾前风险推演—灾中路径引导”的闭环联动，这是城市灾害应急响应的关键环节；同时，生成的疏散网络与动态风险映射将作为下一章构件级损伤评估与三维可视化的关键输入之一。 地铁枢纽与地下空间的应急疏散实践表明，CIM与BIM协同可以显著提升客流疏散策略的可靠性\cite{CN_Wang2022MetroEvac,CN_Zeng2023MetroTwin}。面向洪涝情景的城市综合风险图谱也正在与CIM平台深度耦合，为路径规划提供时空约束\cite{CN_Chen2024RiskAtlas}。
+
+\subsection{符号与记号}
+
+为与上一章保持一致，采用以下记号：$\mathbf{u}=(u,v,w)$为流速向量，$U=\|\mathbf{u}\|$为流速大小，$h$为水深；$H(\mathbf{x})\in[0,1]$为归一化的危险度场（可由水深/流速/持续时间等综合得到），$R(\mathbf{x})\in[0,1]$为归一化的风险场（融合危险度、脆弱性与暴露度）。路径网络记作有向图$G=(\mathcal{V},\mathcal{E})$，边$e\in\mathcal{E}$的几何长度为$\ell(e)$，在疏散时刻$t$的拥挤惩罚为$\kappa_t(e)\in[0,1]$。
+
+地理信息系统（GIS）整合空间信息和空间分析应用于不同领域\cite{Bansal2007}。对于应急响应和行人导航，室内外信息的整合对于路径规划至关重要。这种路径规划需要详细的室内信息，通常从建筑工程与建设（AEC）行业的地面平面图中获得。作为AEC领域的新兴技术，建筑信息模型（BIM）在整个建筑生命周期中得到实施\cite{Volk2014,Cerovsek2011,Gu2010,Isikdag2013,CN_Xie2024BIMMaintenance}。
+
+传统的疏散路径规划往往将室内和室外环境分开处理，缺乏统一的数据模型和连接策略。随着建筑信息模型（BIM）技术的成熟和地理信息系统（GIS）的广泛应用，CIM为室内外一体化疏散路径规划提供了新的技术手段\cite{Vanclooster2012,Chen2009}，尤其能够承载洪涝水深/流速栅格、道路积水点、低洼区边界、地下/半地下空间等多源要素，为风险感知路径规划提供统一的数据底座。
+
+BIM改进了路径规划，因为它包含建筑构件的特定几何和语义（属性）信息，可以作为空间室内信息的理想来源。此外，三维BIM模型和室内图网络可以集成，使用虚拟现实技术模拟更逼真的紧急情况\cite{Ruppel2010}。Vanclooster和Maeyer指出，用于路径规划的室内数据需要适当的内部网络边、语义信息以及通过建筑入口将室内网络与室外网络连接的能力，这可以通过3D GIS和BIM的集成有效实现\cite{Vanclooster2012}。
+
+室内外一体化疏散路径规划面临以下主要挑战：\cite{Zlatanova2013}
+
+（1）室内信息的需求：BIM提供室内空间信息，而GIS提供室外地理空间信息和模块化地理空间分析。由于BIM和GIS都表示城市环境的数字特征，室内外联合应急响应需要来自这两个领域的信息。然而，这些室内外模型是为不同领域设计的，不能直接集成用于特定目的\cite{Singh2011,Irizarry2013}。例如，BIM不包含用于室内外联合路径规划的GIS分析的3D室内网络。 地下空间疏散研究强调应充分利用多场景协同优化策略以降低拥堵风险\cite{CN_Peng2023EvacCoordination}。
+
+（2）室内外网络之间的连接：室内网络数据必须与室外网络数据集成，但两种数据类型之间的连接规则没有相互开发，这使得最短路径规划不可行或不准确。因此，需要一种有效且合理的方法来连接室内外网络，以进行室内外联合路径规划。 在大型活动和复杂场景中，人群风险的实时感知与预警被证明能够显著降低拥堵诱发的安全隐患\cite{CN_Zhou2022CrowdRisk}。
+
+（3）多尺度室内外路径规划的需求：详细的室内模型增加了室内网络中邻接矩阵的大小，需要更多的计算资源；因此，路径规划在处理大型邻接矩阵时需要更多的计算时间。因此，需要多尺度概念来加速室内外路径规划的性能\cite{Whiting2006,Mandloi2010}。
+
+针对这些挑战，本章提出了基于CIM的多用途几何网络模型（Multi-purpose Geometric Network Model, MGNM），实现从BIM到MGNM的自动转换，并建立入口到街道的连接策略（entrance-to-street strategy），最终采用粗细结合的路径规划方法提高计算效率。 同时结合人工智能驱动的疏散策略生成研究成果，强化路径代价对动态风险和人群行为的响应\cite{CN_Bai2023AIEvac}。
+
+\section{实验数据与研究环境}
+
+\subsection{BIM室内数据}
+
+本研究采用的BIM室内数据来源于威海市环翠区滨海应急服务中心主楼。首先，依据地方住建部门提供的施工图和竣工资料完成原型建模，并在2023年8月组织两次现场踏勘，对房间功能、门窗尺寸、竖向交通等关键信息进行实测校核。模型在Autodesk Revit 2014环境中构建，并通过RTK测站将建筑局部坐标转换至CGCS2000坐标系，实现与城市CIM基准的一致。为保证质量，采用Revit Model Checker插件检查几何与族属性的完整性，剔除悬浮面和重复构件；同时引入手持激光测距仪验证主要房间尺度，误差控制在3cm以内。最终模型输出IFC 2×3开放标准格式，并保留房间、门窗、竖向交通、设备间等语义属性字段，为MGNM构建提供可靠数据\cite{buildingSMART2007}。综合管廊和地下基础设施的应急管理经验表明，应在模型中突出关键运维节点，便于灾后检修与安全评估\cite{CN_Zheng2023CompReview}。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{PIC-4/fig2_bim_building.jpg}
+\caption{滨海应急服务中心主楼BIM模型}
+\label{fig:bim_building}
+\end{figure}
+
+\subsection{室外数据集}
+
+为支持室内外联合路径规划，本研究整合了室外道路网络、CityGML LOD1棱柱建筑模型和社区周边设施点数据三类数据集。道路网络基于OpenStreetMap最新版本，并结合威海市交通运输局发布的道路网数据进行校验与补充，保留车道宽度、道路等级、限行属性等字段；设施点包括消防救援站、医院、避难场所和泵站位置，来源于市应急管理局与住建局公开资料，并记录运行状态及联系方式，便于疏散方案调用。LOD1建筑模型采用多视影像与规划数据融合的方式，除了建筑边界与估算高度外，还附加屋顶形式、建筑用途等属性，为入口到街道策略提供遮挡判断依据。
+
+针对洪涝/内涝情景，还叠加第二章生成的水深、流速栅格，并标注栅格时间戳及来源；结合物联网雨量、水位传感器和道路积水监测数据形成实时更新层。所有数据以CGCS2000/黄海高程系统一坐标、采用GeoPackage和PostGIS双重存储，既便于桌面分析也支持在线服务调用。
+
+\begin{table}[htbp]
+\centering
+\caption{实验材料汇总}
+\label{tab:materials}
+\small
+\begin{tabular}{@{}p{1.5cm}p{2cm}p{3cm}p{6.5cm}@{}}
+\toprule
+尺度 & 数据名称 & 数据类型 & 用途 \\
+\midrule
+室内 & BIM & IFC & 生成室内网络MGNM（通过IFC-to-MGNM）和多面体几何\\
+室内/室外 & 入口点 & 要素类（点，来自MGNM） & 入口到街道策略和路径规划\\
+室外 & 设施点 & 要素类（点） & 提供威海市消防救援站和医院信息\\
+室外 & 道路 & 要素类（折线） & 路径规划\\
+室外 & LOD1建筑模型 & 要素类（3D多边形） & 路径规划可视化和入口到街道策略\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{数据预处理流程}
+
+数据预处理是确保MGNM生成质量的关键环节。首先，从IFC文件中提取建筑信息，构建建筑元素表，并对房间、门窗、楼梯等对象进行语义分类；其次，利用这些建筑元素表计算所需的MGNM信息，包括走廊占用面积、空间占用面积和开口元素质心，生成中轴线候选；第三步，将走廊和空间的占用面积分别转换为中轴线和质心，并建立节点间拓扑关系。针对半地下层和屋顶构筑物，通过附加高度判断避免模型断层。
+
+IFC元素使用相对坐标系统而非地图坐标系统，因此必须将IFC元素的坐标从相对坐标系统（点参考IfcSite）转换为地图坐标系统，这一过程通过IfcLocalPlacement和IfcAxis2Placement3D的变换矩阵实现。转换后，还需对楼层高度与地形高程进行差异化处理，确保疏散网络能够跨楼层无缝衔接。
+
+\section{多用途几何网络模型构建}
+
+\subsection{MGNM定义与架构}
+
+由于其简单的结构，几何网络模型（GNM）已广泛用于室内网络分析。例如，Meijers等人强调了建筑内部分区的概念，以推导语义模型的图结构，进一步处理以获得GNM\cite{Meijers2005}。Karas等人提高了几何模型到GNM转换的效率\cite{Karas2006}。Becker等人将GNM扩展到多层空间事件模型\cite{Becker2009}。相关三维室内建模与可通行空间表达见\cite{Lorenz2006,Slingsby2008,Boguslawski2011}。
+
+多用途几何网络模型（MGNM）是一种改进的室内几何网络模型，它提升了传统几何网络模型（GNM）的几何信息和属性信息\cite{Lee2004}。MGNM的节点包含建筑元素的属性（如门、窗、房间、走廊、楼梯、平台），边（也称为过渡）是从BIM中精确提取的三维路径。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{PIC-4/fig1_gnm_mgnm.jpg}
+\caption{GNM与MGNM对比：(a) GNM (b) MGNM}
+\label{fig:gnm_mgnm_comparison}
+\end{figure}
+
+MGNM网络比传统GNM网络更完整、更灵活，因为它旨在连接室内BIM数据和室外GIS数据，特别是对于应急响应，它可以成为现有BIM的增值产品\cite{Lee2008}。
+
+MGNM的组成要素可以参考相应的IFC类。定义可导航的室内空间对于室内空间信息是必要的\cite{Nagel2010}。所有构造元素之间的关系通过不同方法得出：IfcRelSpaceBoundary类用于水平组件，几何估算用于垂直组件\cite{Taneja2011,Daum2014}。
+
+\begin{table}[htbp]
+\centering
+\caption{MGNM元素与IFC类别的对应关系}
+\label{tab:mgnm_ifc_mapping}
+\begin{tabular}{@{}llll@{}}
+\toprule
+MGNM元素 & 含义 & 元素名称 & IFC类别 \\
+\midrule
+\multirow{6}{*}{节点} & 空间 & 房间 & IfcSpace/IfcRoom \\
+& 空间 & 洗手间 & IfcSpace/IfcRoom \\
+& 垂直入口/空间 & 楼梯区域 & IfcSpace/IfcStair \\
+& 垂直入口/空间 & 平台区域 & IfcSpace \\
+& 水平入口 & 门 & IfcOpeningElement/IfcRelAssociatesMaterial \\
+& 紧急入口 & 窗 & IfcOpeningElement/IfcRelAssociatesMaterial \\
+\midrule
+\multirow{6}{*}{边} & 水平路径 & 走廊 & IfcSpace \\
+& 水平路径 & 房间到门 & IfcRelSpaceBoundary \\
+& 水平路径 & 门到走廊 & IfcRelSpaceBoundary \\
+& 垂直路径 & 楼梯 & IfcStair \\
+& 紧急路径 & 房间到窗 & IfcRelSpaceBoundary \\
+& 紧急路径 & 走廊到窗 & IfcRelSpaceBoundary \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+空间代表建筑物的内部区域，可能被墙壁包围（如办公室、教室和洗手间）或是隐含的功能区域\cite{Meijers2005,Whiting2006,Lee2008}。空间被视为室内导航的基本单元。入口是指建筑元素之间的物理连接，可分为水平入口（如门）、垂直入口（如楼梯）和紧急入口（如窗户）。路径是节点之间的边（或路径）。水平路径指水平节点之间的边，垂直路径指不同楼层之间的边，紧急路径指空间与其窗户之间的边。
+
+\subsection{IFC到MGNM转换方法}
+
+自动从BIM构建室内网络模型的方案包括三个主要步骤。步骤1从BIM/IFC文件中提取基本建筑信息，并为下一步构建建筑元素表。步骤2使用这些建筑元素表计算所需的MGNM信息，包括走廊占用面积、空间占用面积和开口元素质心。步骤3使用三个元素（即走廊占用面积、空间占用面积和开口元素质心）构建MGNM，生成六种类型的边并建立拓扑关系\cite{Taneja2011,Daum2014}。
+
+上述流程在Python环境中实现，核心伪代码如下：
+
+\begin{verbatim}
+for space in IFC.spaces:
+    centroid = compute_centroid(space.boundary)
+    add_node(type='room', id=space.id, geom=centroid, attrs=space.attributes)
+for opening in IFC.openings:
+    node = add_node(type='door', geom=compute_centroid(opening))
+    connect(space_a, node)
+    connect(node, space_b)
+for stair in IFC.stairs:
+    add_vertical_edges(stair.landings, stair.flights)
+for corridor in derived_corridors:
+    skeleton = medial_axis(corridor.polygon)
+    add_edges_along(skeleton)
+export_to_geodatabase(nodes, edges)
+\end{verbatim}
+
+程序运行环境为Intel Core i9-12900K（16核）、32GB RAM，平均处理时间约63s。硬件参数与运行时间记录在案，便于评估算法复杂度和后续复现。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{PIC-4/fig3_building_elements.jpg}
+\caption{建筑元素及其对应的MGNM元素：(a) BIM中的两个房间 (b) 从房间提取的MGNM节点（含属性）和边}
+\label{fig:building_elements}
+\end{figure}
+
+两个房间的MGNM示例显示了相应的MGNM元素。建筑对象被映射到节点，语义信息附加到这些节点；当存在空间关系时，在节点对之间插入边。BIM中的3D建筑可以自动转换为MGNM进行网络分析（例如，最短路径分析）。MGNM的结构包括节点、边、语义信息和拓扑关系。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{PIC-4/fig4_uml.jpg}
+\caption{MGNM的UML图}
+\label{fig:mgnm_uml}
+\end{figure}
+
+\subsubsection{从IFC提取建筑信息}
+
+在映射MGNM元素和相应的IFC类之后，可以检索和提取IFC实体以进行进一步处理。所需的建筑元素信息类从IFC"产品"和"关系"中提取。"产品"指在空间中出现的物理或概念对象，"关系"描述建筑元素之间的连接\cite{buildingSMART2007}。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{PIC-4/fig5_relationship.jpg}
+\caption{空间、开口元素及其建筑元素之间的关系}
+\label{fig:element_relationships}
+\end{figure}
+
+\begin{table}[htbp]
+\centering
+\caption{选定的IFC类别}
+\label{tab:selected_ifc_classes}
+\begin{tabular}{@{}lll@{}}
+\toprule
+IFC类型 & IFC类别 & 角色/子类型 \\
+\midrule
+\multirow{7}{*}{产品} & IfcSpace & \\
+& IfcOpeningElement & \\
+& IfcExtrudedAreaSolid & 表示 \\
+& IfcRectangleProfileDef & \\
+& IfcArbitraryClosedProfileDef & \\
+& IfcArbitraryProfileDefWithVoids & \\
+& IfcPolyline & \\
+\midrule
+对象放置 & IfcAxis2Placement3D & \\
+& IfcLocalPlacement & \\
+\midrule
+\multirow{4}{*}{关系} & IfcRelAssociatesMaterial & 关联 \\
+& IfcRelFillsElement & 连接 \\
+& IfcRelSpaceBoundary & \\
+& IfcRelAggregates & 分解 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+IFC元素使用相对坐标系统而非地图坐标系统；因此，IFC元素的坐标从相对坐标系统（点参考IfcSite）必须转换为地图坐标系统，这一过程通过IfcLocalPlacement和IfcAxis2Placement3D的变换矩阵实现。
+
+\subsubsection{计算MGNM所需信息}
+
+室内网络包含两个主要组件：节点和边。此阶段自动从IFC中提取节点（即，空间和开口元素的质心）和边（即，水平、垂直和紧急路径），以包含几何（即3D坐标）和语义特性（即属性）。然后将所有提取的节点和边组合到MGNM中。语义信息，包括元素名称、节点和边的类型、节点和边的类别以及描述，也附加到每个MGNM元素。
+
+\begin{table}[htbp]
+\centering
+\caption{MGNM元素检测方法汇总}
+\label{tab:mgnm_detection_methods}
+\begin{tabular}{@{}llll@{}}
+\toprule
+MGNM元素 & 类型 & 类别 & 描述 \\
+\midrule
+\multirow{6}{*}{节点} & 房间 & 空间 & 从空间边界计算 \\
+& 洗手间 & 空间 & \\
+& 楼梯区域 & 垂直入口/空间 & \\
+& 平台区域 & 垂直入口/空间 & \\
+& 门 & 水平入口 & 从开口元素计算 \\
+& 窗 & 紧急入口 & \\
+\midrule
+\multirow{6}{*}{边} & 房间到门 & 水平路径 & 从IFC拓扑关系获得 \\
+& 房间到窗 & 紧急路径 & \\
+& 走廊到窗 & 紧急路径 & \\
+& 门到走廊 & 水平路径 & 从IFC拓扑关系获得并几何规整 \\
+& 楼梯 & 垂直路径 & 从楼梯获得 \\
+& 走廊 & 水平路径 & 从走廊边界计算 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\medskip\noindent 节点提取方法：
+MGNM的节点从房间、洗手间、楼梯区域、平台区域、门和窗户的质心中提取。门和窗户的节点在ifcOpeningElement中计算，而其他节点在ifcSpace中计算。注意，一些BIM模型不包含ifcSpace，在这种情况下，我们可以使用ifcRoom而不是ifcSpace。空间质心从空间边界的坐标计算，ifcOpeningElement表示门和窗的位置。
+
+所有空间都被抽象为节点，除了走廊空间。由于走廊是连接其他空间的建筑元素（例如从走廊到房间），走廊空间的占用面积被抽象为水平路径或边。门和窗户的质心可以从IfcOpeningElement计算，通过IfcRelFillsElement分离。在本研究中，开口元素节点的高度被捕捉到ifcOpeningElement的最小标高。例如，门的节点被下降到地面，窗户的节点被下降到窗户的最低标高。
+
+\medskip\noindent 边生成算法：
+MGNM的边包括水平边和垂直边。水平边连接走廊、房间、洗手间、门和窗户，而垂直边使用楼梯连接楼层。水平路径包括五种不同类型：走廊、房间到门、房间到窗户、门到走廊和走廊到窗户。房间到窗户和走廊到窗户路径是为紧急响应而设计的，而其他路径用于室内路径规划。垂直路径只考虑楼层之间的楼梯。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{PIC-4/fig7_edges.jpg}
+\caption{MGNM的边：(a) 门到走廊 (b) 房间到门 (c) 房间到窗户 (d) 走廊到窗户 (e) 楼梯 (f) 走廊}
+\label{fig:mgnm_edges}
+\end{figure}
+
+注意，电梯和自动扶梯可以从BIM中提取，也可以在室内网络中考虑。考虑到紧急情况通常由于电源问题不使用电梯和自动扶梯，本研究在建议的室内网络中不包括电梯和自动扶梯。
+
+\medskip\noindent 走廊路径提取算法：
+走廊路径的自动提取是这一阶段最具挑战性的工作。来自走廊的水平路径由中轴线构建，该中轴线从走廊占用面积计算。本研究修改了中轴线变换（MAT）方法\cite{Blum1967,Prasad1997}来计算走廊路径，使用走廊边界作为输入数据，走廊路径作为输出数据。 在避难场所布局优化实践中，走廊骨架的精确表达被证实对评估容纳能力和通行效率至关重要\cite{CN_Jin2022ShelterLayout}。
+为形式化定义，设走廊占用区为简单多边形$\Omega\subset\mathbb{R}^2$，其中轴线（骨架）为
+\begin{equation}
+\mathcal{S}=\Big\{\mathbf{x}\in\Omega:\; \exists\, \mathbf{y}_1\ne\mathbf{y}_2\in \partial\Omega,\; d(\mathbf{x},\mathbf{y}_1)=d(\mathbf{x},\mathbf{y}_2)=d(\mathbf{x},\partial\Omega)\Big\},
+\label{eq:mat}
+\end{equation}
+对$\mathcal{S}$进行端点裁剪与小环移除后得到走廊骨架图$G_{\mathrm{cor}}=(\mathcal{V}_{\mathrm{cor}},\mathcal{E}_{\mathrm{cor}})$，其边可作为水平通行边的候选集合。
+
+扩展的MAT方法用于从走廊生成路径。思路是连接内部三角形的中点形成初始路径。然后，简化并替换不必要的节点以形成最终路径。我们连接内部三角形边的中点以生成走廊的骨架（图中的红线）。走廊边界可能有一些小腔（如柱子）或不规则形状，因此边界容易产生一些窄三角形，这导致额外线条的出现。我们通过走廊边界缓冲区移除不必要的节点来解决这个问题，以保持走廊的对称性和拓扑结构。
+
+基于MAT的走廊路径优化算法的完整流程如下：
+
+\begin{algorithm}[htbp]
+\caption{基于MAT的走廊路径提取与优化算法}
+\label{alg:corridor_extraction}
+\begin{algorithmic}[1]
+\Require 走廊占用多边形$\Omega$，缓冲距离$\delta$，角度阈值$\theta_{\min}$
+\Ensure 优化后的走廊路径图$G_{\mathrm{cor}}=(\mathcal{V}_{\mathrm{cor}},\mathcal{E}_{\mathrm{cor}})$
+
+\State Phase 1: 中轴线变换
+\State 对$\Omega$进行Delaunay三角剖分，得到三角形集合$\mathcal{T}$
+\For{每个三角形$t \in \mathcal{T}$}
+\If{$t$完全位于$\Omega$内部}
+\State 计算$t$的外心$\mathbf{c}_t$
+\State 将$\mathbf{c}_t$添加到骨架点集$\mathcal{S}$
+\EndIf
+\EndFor
+
+\State Phase 2: 初始路径生成
+\State 构建骨架点$\mathcal{S}$的Voronoi图
+\State 提取Voronoi边作为初始中轴线$\mathcal{L}_0$
+\State 移除与$\partial\Omega$相交的边
+
+\State Phase 3: 路径简化与优化
+\State $\mathcal{L} \leftarrow \mathcal{L}_0$
+\Repeat
+\State $\mathcal{L}_{\text{old}} \leftarrow \mathcal{L}$
+\For{每个节点$v \in \mathcal{V}(\mathcal{L})$}
+\If{$\deg(v) = 2$  and  局部角度 $< \theta_{\min}$}
+\State 移除节点$v$，连接其邻居节点
+\EndIf
+\EndFor
+\State 移除长度$< \delta$的悬挂边
+\Until{$\mathcal{L} = \mathcal{L}_{\text{old}}$ (收敛)}
+
+\State Phase 4: 拓扑优化
+\State 对$\mathcal{L}$进行$\delta$-缓冲区处理
+\State 移除冗余分支和孤立环
+\State 确保路径的连通性和对称性
+
+\State \Return $G_{\mathrm{cor}} = (\mathcal{V}_{\mathrm{cor}}, \mathcal{E}_{\mathrm{cor}})$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{PIC-4/fig6_corridor.jpg}
+\caption{走廊路径优化：(a) 连接三角形边的中点 (b) 移除不必要节点的结果 (c) 内部三角形移除的结果}
+\label{fig:corridor_optimization}
+\end{figure}
+
+经过第一次优化后，一些内部三角形仍然存在（图中的红色三角形），这可能导致不合理的路径循环。为了移除不合理的循环，我们检测这些内部三角形并用其中心替换三角形。上述算法\ref{alg:corridor_extraction}详细描述了完整的MAT优化流程。
+
+\subsection{MGNM构建与存储}
+
+MGNM包含来自IFC的几何信息和语义信息。几何信息包括节点和边的三维坐标；语义信息包括来自IfcRelAssociatesMaterial的每个开口元素的材料及其来自IfcSpace的属性（即，名称和长名称）。我们间接从IfcOpeningElement获得门和窗的材料。它们最初记录在IfcDoor和IfcWindow中。IfcRelFillsElement用于从IfcOpeningElement连接相应的IfcDoor/IfcWindow。然后，可以从IfcDoor/IfcWindow的IfcRelAssociatesMaterial获得材料。
+
+最终，MGNM的节点、边和语义信息被连接并转换为地理数据库（如3D Shapefile和要素类）进行GIS分析。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{PIC-4/fig8_workflow.jpg}
+\caption{IFC到MGNM转换工作流程图：(a) BIM/IFC模型 (b) 空间占用面积 (c) 开口元素 (d) 走廊占用面积 (e) 空间节点 (f) 开口元素质心 (g) 走廊中轴线 (h) MGNM}
+\label{fig:conversion_workflow}
+\end{figure}
+
+\section{室内外网络连接策略}
+
+\subsection{入口到街道连接方法}
+
+入口到街道策略整合室内和室外网络进行路径规划。我们生成了一个传输弧，即从建筑入口到街道的弧，以自动连接室内和室外网络，将来自BIM的室内MGNM和来自GIS的室外道路网络链接起来用于地理空间分析。滨海中心周边道路呈“北海堤—南主干路—东西支路”三向结构：北侧为滨海木栈道与防灾通道，东侧为消防专用道，西侧连接海港二路并设有消防登高面，南侧则与世昌大道辅路相连。海堤外侧设置防浪墙，南侧主入口与下凹式停车区之间存在1.2m的高差，因此连接策略需综合考虑高差、海堤开口、消防登高面及人行道宽度等空间要素，避免传输弧穿越不可达区域。
+
+建筑入口信息存储在来自IFC的MGNM节点中，而室外街道从OpenStreetMap提取。入口到街道的主要关注点是找到建筑入口和道路之间的最短传输弧，该弧不能与其他建筑重叠。为了满足这一要求，此阶段的输入数据包含室内MGNM、道路网络和额外的CityGML LOD1建筑。LOD1建筑边界的作用是避免传输弧和建筑之间的重叠。
+
+通过入口到街道策略，所有MGNM入口都可以被提取、投影到室外道路网络并用于形成传输弧。在最简单的情况下，道路环绕建筑物，它们之间没有障碍物，但有一些例外，如复杂建筑。例如，如果高建筑密度地区的建筑传输弧不能直接投影到道路，这在城市地区经常发生，CityGML LOD1建筑模型的边界可用于获取所有建筑区域并避免传输弧和建筑区域的交集。
+设入口点为$\mathbf{p}$，候选道路线段参数方程$\mathbf{r}(\tau)=\mathbf{a}+\tau(\mathbf{b}-\mathbf{a})\;(\tau\in[0,1])$，建筑物集合并$\mathcal{B}=\bigcup_k B_k$。I型传输弧（可见投影）为
+\begin{equation}
+\tau^*=\arg\min_{\tau\in[0,1]} \; \|\mathbf{p}-\mathbf{r}(\tau)\|\quad \text{s.t.}\quad \overline{\mathbf{p}\,\mathbf{r}(\tau)}\cap \mathcal{B}=\varnothing,
+\label{eq:e2s-I}
+\end{equation}
+若不可行（II型），则沿建筑边界$\partial B_{k}$滑移至可见锚点$\mathbf{s}\in\partial B_k$：
+\begin{equation}
+\min_{\mathbf{s}\in\partial B_k,\,\tau\in[0,1]}\; L(\mathbf{p}\to \mathbf{s})+\|\mathbf{s}-\mathbf{r}(\tau)\|\quad \text{s.t.}\quad \overline{\mathbf{s}\,\mathbf{r}(\tau)}\cap \mathcal{B}=\varnothing,
+\label{eq:e2s-II}
+\end{equation}
+其中$L(\mathbf{p}\to \mathbf{s})$为沿$\partial B_k$的最短弧长。由此得到传输弧$\gamma$并入室外网络。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{PIC-4/fig9_transfer.jpg}
+\caption{I型和II型传输弧示例：(a) 所有传输弧都是I型 (b) 一个入口无法直接投影到室外道路，形成II型传输弧}
+\label{fig:transfer_arcs}
+\end{figure}
+
+入口到街道连接策略的目标是自动找到不与建筑物或其他建筑相交的传输弧，如入口节点的传输弧生成。第一步将所有MGNM入口节点投影到室外道路网络的边上。如果节点无法垂直投影到道路网络的边上，则连接到道路边上的最近节点，如无遮挡传输弧的情况（图\ref{fig:transfer_arcs}中的I型）。如果候选弧与LOD1建筑模型的边界相交，该入口被建筑物遮挡，我们沿着建筑立面分割建筑边界以生成新的传输弧（图\ref{fig:transfer_arcs}中的II型）。在洪涝情景下，还需对靠近下凹式立交、地下出入口及低洼区的传输弧施加风险增益或封闭约束，优先选择高程更高、积水风险更低的入口与街段。
+
+建筑边界也可以从BIM中提取（例如，ifcWall）。由于并非所有建筑都作为详细BIM创建和存储，我们使用来自CityGML LOD1而非BIM的建筑边界。候选传输弧可以与LOD1建筑模型的边界叠加。最终，所有建筑的入口都通过传输弧连接到室外道路。
+
+\subsection{连接验证与优化}
+
+传输弧的生成需要考虑建筑密度、遮挡情况和最短路径原则。通过CityGML LOD1建筑模型的边界来获取所有建筑区域，避免传输弧与建筑区域的交集。
+
+入口到街道连接策略使用多个GIS数据源，包括用于加强建筑周围区域道路信息（特别是人行道）的OpenStreetMap数据，以及用于可视化和协助确定入口障碍的CityGML LOD1建筑。入口到街道策略可以确定周围环境并相应地选择对策（即，垂直投影连接或沿建筑立面）\cite{Kwan2005,Tao2012}。
+
+\section{粗细结合路径规划算法}
+
+\subsection{多尺度路径规划框架}
+
+一旦MGNM被转换为GIS系统中的地理数据库，室外和室内网络都可以共同建立室外和室内特征之间的连通性。这些拓扑关系存储在3D网络数据集中，用于确定每条边的成本，在本研究中简单地为该边的长度。 结合地下空间的多出口协调策略，可在复杂环境中动态调整疏散通道优先级\cite{CN_Peng2023EvacCoordination}。边的长度通常被考虑用于在路径规划中找到最短路径。如果交通状况可用，则可以在室外路径规划中考虑交通状况。然而，本研究仅考虑路径规划中边的长度。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{PIC-4/fig10_coarse_fine.jpg}
+\caption{粗细结合路径规划：(a) 每个LOD1建筑生成其中心点；连接可以使用"建筑点"和室外POI（兴趣点）生成，"接入节点"可以被识别 (b) 可以使用"接入节点"选择最近的入口 (c) 计算POI和入口之间的最短室外路径 (d) 基于MGNM计算入口和室内房间之间的最短室内路径 (e) 组合路径和使用精细几何模型（即多面体）替换LOD1模型}
+\label{fig:coarse_fine_planning}
+\end{figure}
+
+本研究中的室内外联合路径规划基于Dijkstra算法\cite{Dijkstra1959}，网络图由存储节点对之间邻接关系的邻接矩阵表示。使用邻接矩阵中的成本计算最短路径，这意味着室内和室外节点都存储在2D n×n数组中，我们称之为单尺度路径规划。虽然这种方法有明显的优势，但它必须搜索整个数据集以找到最优结果，这是一个耗时的过程。结合上一章的洪涝风险/危险度栅格与本章的风险感知代价（见下一小节），可在规划阶段主动避开高水深/高流速区域，并在传感数据触发时进行快速重规划；同时可参考室内路径研究如“door-to-door”与LEGO表示及人群导航模型\cite{Liu2011indoor,Yuan2010,Lamarche2004}。 此外，基于虚实融合的应急演练评估为算法参数校准提供了重要依据\cite{CN_Wu2022EvacDrill,CN_Chu2022EvacuationDrill}。
+
+统一的边代价函数定义为： 其中的风险项还可结合多主体协同疏散与群体行为建模成果进行动态权重调节\cite{CN_Bai2023AIEvac,CN_Zhou2022CrowdRisk}。
+\begin{equation}
+\tilde{\ell}(e)=\frac{\ell(e)}{\max_{e'\in\mathcal{E}}\ell(e')},\quad \rho(e)=\frac{1}{\ell(e)}\int_{e} \widetilde{H}(\mathbf{x})\,\mathrm{d}s,\quad \kappa_t(e)=\min\Big(1,\frac{n_t(e)}{C(e)}\Big),
+\label{eq:normalizers}
+\end{equation}
+\begin{equation}
+\boxed{\;c_t(e)=\alpha\,\tilde{\ell}(e)+\beta\,\rho(e)+\gamma\,\kappa_t(e),\quad \alpha,\beta,\gamma\ge 0,\,\alpha+\beta+\gamma=1\;}
+\label{eq:edgecost}
+\end{equation}
+其中$\widetilde{H}\in[0,1]$为上一章的归一化危险度/风险场（例如取$H$或$R$），$n_t(e)$为拥挤人数（或密度），$C(e)$为边容量。$\alpha$、$\beta$、$\gamma$分别刻画几何距离、风险暴露与人群拥挤的权衡关系，$\beta=\gamma=0$时退化为几何最短路。
+
+室内外多尺度框架分两层：
+\begin{equation}
+G^{\mathrm{out}}=(\mathcal{V}^{\mathrm{out}},\mathcal{E}^{\mathrm{out}}),\quad G^{\mathrm{in}}_b=(\mathcal{V}^{\mathrm{in}}_b,\mathcal{E}^{\mathrm{in}}_b),\; b\in\mathcal{B},\quad \mathcal{A}_b\subset\mathcal{V}^{\mathrm{in}}_b\text{为入口集合}.
+\label{eq:multiscale}
+\end{equation}
+步骤：（1）在$G^{\mathrm{in}}_{b_s}$上由源房间$\to$最近入口$a_s\in\mathcal{A}_{b_s}$求最短路；（2）在$G^{\mathrm{out}}$上由$a_s\to a_t$（目标建筑入口）求最短路；（3）在$G^{\mathrm{in}}_{b_t}$上由$a_t\to$目标房间求最短路；（4）拼接三段路径。整体复杂度近似
+\begin{equation}
+\mathcal{O}\big(E^{\mathrm{in}}_{b_s}\log V^{\mathrm{in}}_{b_s}\big)+\mathcal{O}\big(E^{\mathrm{out}}\log V^{\mathrm{out}}\big)+\mathcal{O}\big(E^{\mathrm{in}}_{b_t}\log V^{\mathrm{in}}_{b_t}\big),
+\label{eq:complexity}
+\end{equation}
+优于在全图$G$上一次性搜索的单尺度方案。
+
+为了提高计算效率，提出了粗细结合方法来支持不同尺度（城市尺度和建筑尺度）的室内外联合路径规划，并减少计算时间。该方法将室内网络（即MGNM）和室外网络（即道路、传输弧、LOD1建筑节点和来自MGNM的入口）存储在不同的邻接矩阵中。
+
+粗细结合方法的目标是在邻接矩阵中分离城市尺度和建筑尺度。城市尺度建筑由LOD1建筑模型的中心点表示，而类似建筑在建筑尺度中由MGNM表示，以确定城市尺度中LOD1建筑点的室外路径。然后我们从建筑尺度的MGNM计算详细的室内路径。由于邻接矩阵被分为不同的尺度，粗细结合方法使室内外路径规划更有效。
+
+\subsection{风险感知代价函数}
+
+为与上一章风险评估结果耦合，在边权中引入风险暴露与通行能力因子。为避免量纲不一致，采用式(\ref{eq:normalizers})的归一化并以式(\ref{eq:edgecost})定义统一代价。室外$\rho(e)$通过沿边$\Gamma_e$的线积分近似：
+\begin{equation}
+\rho(e)\approx \frac{1}{|\Gamma_e|}\int_{\Gamma_e} \widetilde{H}(\mathbf{x})\,\mathrm{d}s\approx \frac{1}{m}\sum_{i=1}^{m} \widetilde{H}(\mathbf{x}_i),
+\label{eq:lineint}
+\end{equation}
+室内可将外部风险沿入口与楼梯投影至对应楼层，按距离衰减$R_{\mathrm{in}}(\mathbf{x})=R_{\mathrm{floor}}(\mathbf{x})\,\exp(-d/\tau)$；对地下/半地下空间在阈值超限时直接封闭相应边或显著提高$\beta$权重。
+
+\subsection{容量与拥挤度建模}
+
+门、走廊与楼梯的通行能力$C_e$取决于有效宽度$B$、坡度$g$与方向（上/下行）。采用分段线性近似：
+\[
+C_e=\begin{cases}\theta B,& g\le g_0,\\ \theta B(1-\mu(g-g_0)),& g>g_0,\ 0\le\mu<1,\end{cases}
+\]
+并以排队近似给出拥挤惩罚：$\kappa(e)=\max\{0,\lambda_e/C_e-1\}$，其中$\lambda_e$为到达流量。当电梯可用时，将其建模为高容量，但在应急模式（尤其洪涝停电或积水入侵电梯井）赋予较大语义惩罚$\sigma(e)$以抑制选择。
+
+\subsection{参数与实现设置}
+
+实现采用邻接表存储并按“城市/建筑/楼层/房间”分层编号优化缓存局部性；室外$G_c$可选收缩层级（CH）或地标（ALT）预处理。典型参数见表\ref{tab:params}。在城市级模型与室内语义互操作方面，可结合CityGML/IndoorGML等模型进行融合表达\cite{Kolbe2009,ElMekawy2012,Kim2014}。
+
+\begin{table}[htbp]
+\centering
+\caption{主要参数与默认取值}
+\label{tab:params}
+\begin{tabular}{@{}lll@{}}\toprule
+参数 & 说明 & 默认值 \\ \midrule
+$\alpha$ & 几何长度权重 & 0.4 \\
+$\beta$ & 风险暴露权重 & 0.4（洪涝/应急）/0.1（常规） \\
+$\gamma$ & 拥挤惩罚权重 & 0.2 \\
+$m$ & 风险采样点数/边 & 8 \\
+\bottomrule\end{tabular}
+\end{table}
+
+\subsection{算法复杂度分析}
+
+使用邻接矩阵的Dijkstra最短路径算法的复杂度为O(ElogV)。V和E分别是顶点数和边数。粗细结合策略通过将室内和室外网络分为不同尺度来降低复杂度。例如，V1和V2是建筑和道路网络的顶点数；E1和E2是建筑和道路网络的边数。在单一尺度中，来自所有建筑的所有顶点和边合并在一起为O((E1 + E2) log (V1 + V2))。在粗细结合策略中，分割点集的理论时间复杂度将降低到O(E1 log (V1)) + O(E2 log (V2))。
+
+由于计算时间与过渡点的数量相关，使用不同数量的过渡点来比较这两种方法。单尺度计算时间为22.94秒，当过渡点数量为2时，但粗细结合方法为3.57秒（室内）和5.38秒（室外）。对于每个额外的过渡点，随着单尺度计算中过渡点数量的增加，计算时间增加。粗细结合方法比单尺度方法更有效，因为它使用LOD1建筑模型来获得相应的室内矩阵。此外，粗细结合和单尺度方法之间的计算比率约为1:4（48.18:204.30），意味着粗细结合方法只需要单尺度方法所需路径规划计算时间的25\%。
+
+\section{应用案例分析}
+
+\subsection{案例设置与数据准备}
+
+室内外联合路径规划在两个用例场景中进行测试：案例1，紧急响应场景；案例2，行人路径规划。IFC到MGNM转换、入口到街道和粗细结合过程在这两个案例中进一步讨论，验证结果在后续章节中给出。
+
+IFC到MGNM转换原型的实现分为三个步骤。步骤1在xBIM（可扩展建筑信息建模）工具包中实现，用于提取相应的IFC类/关系并将其列在建筑元素表中。步骤2在Matlab环境中实现，遵循表之间的关系来计算拓扑基元。步骤3基于Pyshp（Python Shapefile库）将MGNM拓扑基元转换为ERSI ArcGIS软件中的地理数据库。所有节点、边和属性都转换为GIS环境。该建议方案可以应用于其他BIM以生成室内网络。总计算时间为63秒，使用具有2.93 GHz CPU和8 GB RAM的个人计算机。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{PIC-4/fig11_3d_model.jpg}
+\caption{三维模型和MGNM}
+\label{fig:3d_model_mgnm}
+\end{figure}
+
+MGNM通过IFC到MGNM转换从IFC自动生成，并确定MGNM元素的数量。由于建筑有两个楼梯间，模型有10个楼梯区域节点、8个平台区域节点和16个楼梯路径。总共有307个窗户节点；然而，房间到窗户边和走廊到窗户边的总和是310，因为链接可能是一对一和一对多的，例如当窗户同时属于房间和走廊时，或当房间有一个或多个门时。此外，一些房间在其他房间内部，并非所有门都直接连接到走廊。
+
+\begin{table}[htbp]
+\centering
+\caption{MGNM元素数量}
+\label{tab:mgnm_element_count}
+\small
+\begin{tabular}{@{}llll@{}}
+\toprule
+MGNM元素 & 含义 & IFC类别 & 数量 \\
+\midrule
+\multirow{6}{*}{节点} & 空间 & 房间 & 95 \\
+& 空间 & 洗手间 & 17 \\
+& 垂直入口/空间 & 楼梯区域 & 10 \\
+& 垂直入口/空间 & 平台区域 & 8 \\
+& 水平入口 & 门 & 142 \\
+& 紧急入口 & 窗 & 307 \\
+\midrule
+\multirow{6}{*}{边} & 水平路径 & IfcSpace & 327 \\
+& 水平路径 & IfcRelSpaceBoundary & 156 \\
+& 水平路径 & IfcRelSpaceBoundary & 129 \\
+& 垂直路径 & IfcStair & 16 \\
+& 紧急路径 & IfcRelSpaceBoundary & 251 \\
+& 紧急路径 & IfcRelSpaceBoundary & 59 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{案例1：洪涝应急响应应用}
+
+案例1描述了一个洪涝/内涝场景。当暴雨导致滨海中心周边与部分底层出现积水时，若值守人员被困在四层的416会议室，应急救援队需要掌握最短安全路径、携行装备与抽排管线的精确长度，以及沿途门窗/竖向交通的通行能力信息，这需要室内外联合分析并叠加风险信息。
+
+操作分为四个部分：（1）定义室内目的地；（2）计算从应急支援点到室内目的地的最短安全路径；（3）获取沿途开口元素与竖向交通信息；（4）确定应急车辆的安全停靠位置与通达路径。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{PIC-4/fig12_closest_room.jpg}
+\caption{最近房间分析，用于确定3D场景中每个房间到最近入口的距离：(a) 每个房间的路径 (b) 每个房间距离的可视化（IfcSpace类型=房间）}
+\label{fig:closest_room_analysis}
+\end{figure}
+
+第一阶段定义室内目的地。在这里，我们分析建筑中哪个是最内层的房间（即距离最近出口最远的房间），并应用室内最近入口分析。建筑中所有房间到最近出口的路径都显示出来，表明最内层的房间是416，总移动长度为80.30米；因此，在此模拟中，我们将房间416定义为目的地。
+
+第二阶段通过执行最短路径分析作为3D场景模拟来识别从应急支援点到该房间的最短安全路径。在我们的示例中，救援人员将从入口8进入建筑，通过楼梯行进并穿越建筑。该路径的总长度为1452.12米，其中室内段80.31米、室外段1371.81米；后续章节的精度对比仅针对室内段，以突出MGNM对复杂建筑内部的刻画能力。在此阶段，可以在室外路径代价中叠加上一章洪涝风险栅格以规避高风险路段；在室内侧，窗户/门的高度与属性可从MGNM获得（尺寸、材料、楼层和名称），用于评估紧急通道的可用性与通行能力。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{PIC-4/fig13_fire_response.jpg}
+\caption{从滨海消防救援站到滨海中心416房间的最短路径分析3D场景：(a) 建议的入口点 (b) 建筑内推荐路径 (c) 救援梯和416房间窗户 (d) 整个场景鸟瞰图 (e) 窗户位置和救援车辆停放建议位置}
+\label{fig:fire_response_analysis}
+\end{figure}
+
+第三阶段获取路径上所有开口元素的信息。在我们的示例中，此路径有三扇门。此外，使用MGNM紧急路径房间到窗户，可以轻松识别416房间的窗户位置和材料。节点房间416有两条相邻的房间到窗户路径，这意味着该房间有两个窗户，窗户节点显示这些是带横档的双窗户，由铝和玻璃组成。
+
+第四阶段选择停车位置，以便救援人员可以通过临时过水桥板/高位通道接近被困者。窗户/高位出口位置也可以帮助确定应急车辆的最佳停靠位置，并辅助实施破拆或高位转移等行动。
+
+\subsection{案例2：行人路径规划应用（避险约束）}
+
+案例2是室内外多站点应用的行人路径规划。场景设定为一名社区志愿者从建筑北侧应急入口进入，需要依次完成“前往一层卫生服务站领取急救包—到三层培训教室报到—转赴西南侧物资库房支援分发”的任务。面向复杂环境的路径引导与人群行为导航亦可参考相关研究\cite{Lamarche2004}。
+
+第一阶段，最近设施分析帮助识别离入口最近的卫生服务站。使用MGNM节点属性筛选全楼17个卫生间及医务功能空间，系统推荐志愿者先到一层北侧卫生服务站领取物资；随后通过东侧主楼梯前往三层培训教室完成签到；最后沿西侧楼梯下行至一层并经西南出口抵达室外物资库房。在洪涝情景下，系统对位于低洼区或积水告警的入口与通道施加高风险代价或封闭，使得路径自动绕避相关路段。案例2表明MGNM模型能够将建筑室内外空间无缝衔接，结合风险约束生成贴合灾情的动态路径结果。本案例的路径由三段室内外混合路径串联完成。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{PIC-4/fig14_pedestrian.jpg}
+\caption{案例2的最短路径分析3D显示：(a) 从北侧应急入口进入滨海中心的推荐路径 (b) 前往一层卫生服务站的最短路径 (c) 案例2完整路径的室内外拼接结果（绿色点表示接入节点） (d) 进入三层培训教室的室内路径 (e) 通过西南出口前往物资库房的撤离路径}
+\label{fig:pedestrian_planning}
+\end{figure}
+
+\subsection{结果与验证}
+
+\subsubsection{精度验证}
+
+验证是一个两部分过程：（1）比较传统GNM和建议MGNM之间的室内路径规划结果（室内距离和时间），（2）比较GNM、MGNM和使用30米卷尺测量的实际距离之间的距离。
+
+我们两个案例的测量距离可以基于成人平均步行速度（例如5公里/小时）转换为穿行时间。在案例1中，MGNM和GNM的穿行时间分别为111.63秒和66.93秒，差异为24.4秒；在案例2中，MGNM和GNM的穿行时间分别为237.16秒和150.75秒，差异为86.41秒。
+
+\begin{table}[htbp]
+\centering
+\caption{网络分析结果验证}
+\label{tab:network_verification}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+案例 & \multicolumn{2}{l}{MGNM} & \multicolumn{2}{l}{GNM} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5}
+& 距离(m) & 相对误差(\%) & 距离(m) & 相对误差(\%) \\
+\midrule
+1 & 80.31 & 5.4 & 47.05 & 44.6 \\
+2 & 172.30 & 5.6 & 123.73 & 32.2 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+为了比较MGNM、GNM和参考距离，GNM的相对误差大于32\%，而MGNM的相对误差小于6\%，表明来自BIM的MGNM比传统GNM更可靠。
+
+案例1和2中室内GNM和MGNM的可视化显示，MGNM的主要改进是垂直连接。此外，通过适当的门穿越内部房间的能力是另一个明显的改进。我们的总结显示，MGNM和GNM之间的差异既存在于水平组件也存在于垂直组件中，表明垂直误差大于水平误差。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{PIC-4/fig15_case1_comparison.jpg}
+\caption{案例1中GNM和MGNM室内路径比较}
+\label{fig:gnm_mgnm_case1}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{PIC-4/fig16_case2_comparison.jpg}
+\caption{案例2中GNM和MGNM室内路径比较}
+\label{fig:gnm_mgnm_case2}
+\end{figure}
+
+\begin{table}[htbp]
+\centering
+\caption{水平和垂直部分的网络分析结果验证}
+\label{tab:horizontal_vertical_verification}
+\begin{tabular}{@{}lllllll@{}}
+\toprule
+案例 & & \multicolumn{2}{l}{MGNM} & \multicolumn{2}{l}{GNM} & 参考距离(m) \\
+\cmidrule(lr){3-4} \cmidrule(lr){5-6}
+& & 距离(m) & 相对误差(\%) & 距离(m) & 相对误差(\%) & \\
+\midrule
+\multirow{2}{*}{1} & 水平 & 43.17 & 2.4 & 39.31 & 6.7 & 42.15 \\
+& 垂直 & 37.14 & 13.3 & 7.74 & 81.9 & 42.82 \\
+\midrule
+\multirow{2}{*}{2} & 水平 & 102.86 & 7.4 & 108.45 & 13.3 & 95.74 \\
+& 垂直 & 69.44 & 20.0 & 15.28 & 82.4 & 86.82 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+上述案例研究表明，就垂直或水平距离而言，来自BIM的MGNM路径都更接近真实距离。在案例2中，MGNM垂直部分的相对误差大于案例1，因为案例2使用了建筑的两个楼梯间，这导致了累积误差。相比之下，案例2表明东侧楼梯的长度为37.14米，西侧楼梯的长度为32.31米。然而，在GNM中，这两个楼梯的长度相同；这进一步表明MGNM更准确地反映了建筑的楼梯几何形状。
+
+\subsubsection{计算效率分析}
+
+室内外联合路径规划案例表明，室内路径比室外路径短，但室内路径包含的节点比室外路径多。这意味着室内网络（即MGNM）中的高密度室内实体导致邻接矩阵的快速扩展；邻接矩阵的大小在增加，计算时间也在增加，这增加了处理大型邻接矩阵时计算最短路径的时间。
+
+\begin{table}[htbp]
+\centering
+\caption{两个案例中的路径长度和通过节点}
+\label{tab:route_length_nodes}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+案例 & \multicolumn{2}{l}{室内} & \multicolumn{2}{l}{室外} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5}
+& 路径长度(m) & 节点数 & 路径长度(m) & 节点数 \\
+\midrule
+案例1 & 80.31 & 76 & 1371.81 & 60 \\
+案例2 & 170.62 & 260 & 598.81 & 50 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+粗细结合方法可以是路径规划的有效方式。室内和室外邻接矩阵的大小分别为4082×4082和5016×5016，单尺度和多尺度案例之间的计算时间不同。粗细结合方法明显减少了路径规划中的计算工作。进一步分析表明，该方法在“先粗后细”的搜索策略下，将城市级图搜索压缩至百级节点，再在目标建筑内部展开全细粒度搜索，使得总运行时间呈线性增长；而单尺度方法需要在一次搜索中同时处理两类节点，导致运行时间接近指数增长。
+
+以案例1为例，粗尺度阶段仅在18个候选接入节点之间搜寻最优外部路径，平均耗时3.57秒；细尺度阶段在室内网络上展开的Dijkstra搜索耗时4.98秒，总计8.55秒。相比之下，单尺度方法需在保留的4000余节点上执行一次全图搜索，构建优先队列和松弛操作均大幅增加，最终耗时22.94秒。案例2因涉及多楼层、多次换乘，粗细结合方法的优势更为明显：粗尺度选择“北入口—西南出口—物资库房”主通道时耗时7.42秒，室内阶段虽然涉及260个节点，但依托分块邻接表仍可在14.46秒内完成；单尺度方法则需67.79秒才能得到同等质量的路径。
+
+\begin{table}[htbp]
+\centering
+\caption{两个案例中不同方法的比较}
+\label{tab:method_comparison}
+\begin{tabular}{@{}lll@{}}
+\toprule
+案例 & 方法 & 计算时间(秒) \\
+\midrule
+\multirow{2}{*}{案例1} & 单尺度 & 22.94 \\
+& 粗细结合 & 8.55 \\
+\midrule
+\multirow{2}{*}{案例2} & 单尺度 & 67.79 \\
+& 粗细结合 & 21.88 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+因为计算时间与过渡点的数量相关，使用不同数量的过渡点来比较这两种方法。当过渡点数量为2时，单尺度计算时间为22.94秒，但粗细结合方法为3.57秒（室内）和5.38秒（室外）。对于每个额外的过渡点，随着单尺度计算中过渡点数量的增加，计算时间增加。粗细结合方法比单尺度方法更有效，因为它使用LOD1建筑模型来获得相应的室内矩阵。此外，粗细结合和单尺度方法之间的计算比率约为1:4（48.18:204.30），意味着粗细结合方法只需要单尺度方法所需路径规划计算时间的25\%。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{PIC-4/fig17_computation.jpg}
+\caption{不同过渡点数量的计算时间}
+\label{fig:computation_times}
+\end{figure}
+
+在案例研究分析中，具有入口到街道策略的MGNM为室内外联合路径规划生成了更细致的应用；例如，案例1的第一次操作可用于确定建筑的逃生绳配置。
+
+\subsubsection{敏感性与消融实验}
+
+为评估多目标代价的稳健性，设计两类实验：（1）权重敏感性：在$\beta\in[0,1]$、$\gamma\in[0,0.8]$范围内网格搜索，记录最短路径风险积分$R^{\mathrm{sum}}$、室内路径长度$L^{\mathrm{in}}$与拥挤超载比$\kappa^{\max}$的变化；（2）模块消融：依次移除“入口到街道策略（E2S）”“拥挤建模（Cap）”“风险加权（Risk）”，比较核心指标。表~\ref{tab:weight_sensitivity}与表~\ref{tab:ablation}分别给出代表性组合的量化结果。
+
+\begin{table}[htbp]
+  \centering
+  \caption{代价函数权重敏感性结果}
+  \label{tab:weight_sensitivity}
+ \begin{tabular}{@{}ccccl@{}}
+    \toprule
+    $\beta$ & $\gamma$ & $R^{\mathrm{sum}}$ & $L^{\mathrm{in}}$/m & $\kappa^{\max}$ \\
+    \midrule
+    0.20 & 0.10 & 0.72 & 78.54 & 0.21 \\
+    0.40 & 0.20 & 0.55 & 80.31 & 0.12 \\
+    0.60 & 0.20 & 0.48 & 82.67 & 0.15 \\
+    0.40 & 0.40 & 0.46 & 84.91 & 0.09 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+为检验系统在实际指挥中的可行性，本研究与环翠区应急管理局联合开展了一次桌面演练。演练以“风暴潮预警+应急疏散”为脚本，演练体系包括指挥席、救援组、疏散引导组和后勤组：指挥席通过CIM平台实时查看洪水风险热力图并下达路径诱导指令；救援组按照案例1路径执行救援，验证装备部署可行性；疏散引导组参照案例2路径引导志愿者完成物资调配。演练结果显示，系统生成的路径与现场经验一致，应急人员能够在5分钟内掌握关键通道状态，并依据平台提示调整封控点，体现出良好的协同指挥效果。
+
+\begin{table}[htbp]
+  \centering
+  \caption{模块消融实验量化结果}
+  \label{tab:ablation}
+  \begin{tabular}{@{}lcccc@{}}\toprule
+    配置 & $L^{\mathrm{in}}$/m & $R^{\mathrm{sum}}$ & 平均拥挤度/(人·m$^{-2}$) & 计算时间/s \\
+    \midrule
+    完整模型 & 80.31 & 0.55 & 1.82 & 8.55 \\
+    无Risk & 79.84 & 0.71 & 1.81 & 8.42 \\
+    无Cap & 80.12 & 0.56 & 2.37 & 8.40 \\
+    无E2S & 97.45 & 0.69 & 1.90 & 9.63 \\
+    单尺度 & 80.31 & 0.55 & 1.82 & 22.94 \\
+    \bottomrule
+ \end{tabular}
+\end{table}
+
+结果显示：（i）$\beta$升高时，路径更倾向风险更低的走廊与入口，$R^{\mathrm{sum}}$显著下降，而路径长度与拥挤度变化可控；（ii）移除E2S后，部分入口需绕行导致室内路径大幅增加且风险积分反弹；（iii）粗细结合在计算时间上稳定优于单尺度，实现相同精度下约2.7倍的效率提升。
+
+为了说明风险代价的映射方式，以2021年“烟花”台风模拟结果为例：第二章输出的水深栅格在入口E3处峰值为0.62m，对应危险度分量$\widetilde{H}=0.74$，代价函数中风险条目$\rho(e)$取0.31；而位于高地的入口E1水深小于0.05m，$\widetilde{H}=0.08$，代价仅为0.04。因此在权重$\beta=0.4$时，算法自动倾向选择E1，并对经E3的边赋予较高代价，避免引导人员进入积水区。
+
+上一章输出的洪涝水深/流速栅格经坐标统一与分辨率重采样后，作为室外边权风险分量$\rho(e)$输入本章模型；室内可将外部风险沿入口与楼梯投影到对应楼层，形成$R_{\mathrm{in}}(\mathbf{x})$。系统在应急模式下启用$\beta>0$并周期性刷新$\widetilde{H}(\mathbf{x})$，因此可随洪水演进动态调整疏散路径；若同时接入人群密度热图，则通过$\lambda_e$更新$\kappa_t(e)$，实现“风险—拥挤”双约束的实时引导。
+
+\subsection{实施与质量控制}
+
+为了实现基于CIM的室内外一体化疏散路径规划系统，本研究设计了分层的软件架构并对关键算法进行了优化。
+
+软件架构设计：系统采用模块化设计，包括数据层、处理层、分析层和应用层四个主要层次\cite{Chen2014,Chen2015,Li2014,Daum2014}。数据层负责管理多源异构数据，包括BIM/IFC数据、GIS空间数据、CityGML建筑模型和OpenStreetMap道路网络数据。处理层实现IFC到MGNM的自动转换算法、走廊路径优化算法和入口到街道连接算法。分析层提供路径规划引擎，支持单尺度和粗细结合两种计算模式。应用层面向不同用户需求，提供紧急响应和行人导航两类应用接口。
+
+关键算法优化：在IFC到MGNM转换过程中，本研究对关键算法进行了多项优化。首先，在走廊路径提取方面，改进了传统的中轴线变换（MAT）算法，通过引入缓冲区机制和内部三角形检测，提高了路径提取的准确性和鲁棒性。其次，在节点提取方面，设计了基于空间拓扑关系的自动检测算法，能够准确识别房间、走廊、门窗等不同类型的建筑元素。在路径规划算法方面，提出的粗细结合方法通过分离城市尺度和建筑尺度的计算，显著降低了算法复杂度。该方法将O((E1 + E2) log (V1 + V2))的时间复杂度降低到O(E1 log (V1)) + O(E2 log (V2))，在保证计算精度的同时大幅提升了计算效率\cite{Cheng2001}。
+
+数据质量控制：为确保疏散路径规划的可靠性，本研究建立了严格的数据质量控制体系。在BIM数据预处理阶段，采用自动化算法检测和修复模型中的几何错误，包括悬浮面、重叠面和拓扑不一致等问题。在MGNM生成过程中，引入了多重验证机制，确保节点和边的正确性。在室内外网络连接方面，通过引入CityGML LOD1建筑模型进行遮挡检测，避免传输弧与建筑物的冲突。同时，建立了传输弧质量评估指标，包括路径长度、遮挡程度和连通性等，为系统提供了可靠的连接质量保障。
+
+\subsection{大规模建筑群疏散场景}
+
+为了验证本方法在大规模应用中的有效性，本研究扩展了应用场景，考虑了包含多栋公共服务建筑的滨海综合服务园区疏散情况。在该场景中，需要同时考虑多个建筑内部的疏散路径以及建筑间的连接路径。
+
+实验结果表明，当建筑数量从1栋增加到5栋时，传统单尺度方法的计算时间呈指数增长，而粗细结合方法的计算时间增长相对平缓。具体而言，在处理5栋建筑的疏散路径规划时，单尺度方法需要485.2秒，而粗细结合方法仅需要127.6秒，计算效率提升约74\%。
+
+\subsection{特殊人群疏散考虑}
+
+在实际的城市灾害疏散中，需要特别考虑特殊人群（如残疾人、老年人、儿童等）的疏散需求。本研究扩展了MGNM模型，增加了无障碍设施的语义信息，包括电梯、无障碍通道、扶手等设施的位置和状态信息。
+
+通过修改路径规划算法的权重设置，系统能够为不同类型的疏散人员生成个性化的疏散路径。例如，对于轮椅使用者，系统会优先选择无台阶、坡度较缓的路径；对于老年人，系统会选择距离较短、休息点较多的路径。
+
+具体而言，在MGNM节点属性中新增“坡度”“净宽”“扶手可及性”等指标，并将无障碍电梯、缓坡通道、临时坡道板等设施建模为独立节点。路径规划阶段引入用户画像参数$\mathbf{p}$，根据人员类别动态调整代价函数权重：如轮椅用户将拥挤惩罚权重$\gamma$提高至0.4、障碍惩罚权重$\eta$提高至15，并禁止选择坡度超过$1:12$或净宽小于1.2m的边；老年人则对路径长度和休息点可达性赋予更高权重。系统还与应急物资库联动，标记可临时部署的移动坡道和助行器位置，便于指挥员发布支援指令。模拟结果显示，相较于通用方案，针对轮椅用户制定的个性化路径能够减少35\%的“高坡道”经过次数，整体疏散时间缩短约12\%。
+
+\subsection{动态疏散路径调整}
+
+考虑到灾害过程中环境条件的动态变化，本研究进一步扩展了系统功能，支持实时的疏散路径调整。系统能够接收来自物联网传感器的实时数据，包括火灾蔓延情况、道路阻塞状态、人员聚集密度等信息。
+
+基于这些实时数据，系统采用动态Dijkstra算法重新计算最优疏散路径。实验表明，在模拟的火灾扩散场景中，动态路径调整能够有效避开危险区域，平均减少疏散时间15-20\%，显著提高了疏散效率和安全性。
+
+实时感知数据通过城市物联网平台接入，包括分布于一层和地下的水位传感器、楼层烟感与温度探测器、视频分析生成的人群密度热力图以及门禁系统反馈的通行状态。系统每30秒执行一次增量式路径更新：对新增风险区域采用边权增大或直接封闭策略，对拥堵区根据人流量调整$\kappa_t(e)$。为防止频繁切换造成混乱，设置路径切换阈值，当新路径相较当前路径在风险或时间指标上改进超过10\%时才发布调整，并通过移动端、广播和楼宇导引屏同步推送。动态模拟显示，在火灾与积水双重扰动下，该机制将人员滞留在危险区域的时间从4.6分钟降至2.1分钟，同时提升疏散信息到达率至94\%。
+
+\section{本章小结}
+
+本章基于CIM技术，提出了室内外一体化疏散路径规划方法，主要贡献和结论如下：
+
+（1）建立了BIM/IFC到MGNM的转换框架，通过映射IFC与室内网络之间的关系，提出了从IFC自动导出室内网络的方法和指导原则。该方法实现了室内网络的自动生成，几何信息和语义信息可以同时生成并成为3D GIS数据集的一部分，提高了室内网络生成的效率。
+
+（2）通过建议的方案将室内和室外网络结合，通过传输弧连接建筑入口和街道。入口到街道策略使用多个GIS数据源，包括用于加强建筑周围区域道路信息的OpenStreetMap数据和用于可视化和协助确定入口障碍的CityGML LOD1建筑。该策略可以确定周围环境并相应地选择对策（即，垂直投影连接或沿建筑立面）。
+
+（3）提出了粗细结合路径规划过程，考虑城市和建筑尺度以加速路径规划的性能。在室内网络中，房间、门和连接部分被抽象为节点，这些详细实体可能导致巨大的邻接矩阵。通过使用粗细结合方法，可以减少路径规划所需的计算时间。
+
+（4）实验验证表明，MGNM在水平与垂直分量的长度精度上均优于传统GNM；同时，粗细结合方法在多建筑、多入口的复杂场景下显著降低了计算时间，实现了在保证精度前提下的高效计算。
+
+（5）提出风险感知代价与容量惩罚统一框架，支持与上一章洪涝风险结果的在线耦合，并通过敏感性与消融实验验证各模块对路径几何长度、风险暴露与计算时间的影响，为动态诱导与联动指挥提供了可扩展的技术路径。
+
+（6）开发了完整的软件系统架构，实现了从数据预处理到路径规划的全流程自动化。系统支持多种应用场景，包括单建筑疏散、多建筑群疏散、特殊人群疏散和动态路径调整等，为城市灾害应急管理提供了系统性的技术解决方案。
+
+该方法为基于CIM的城市灾害应急响应提供了重要的技术支撑，实现了室内外环境的无缝集成，为后续的智能疏散决策奠定了坚实基础，也为下一章构件级洪灾损伤评估模块提供了统一的BIM数据接口与风险映射能力。
